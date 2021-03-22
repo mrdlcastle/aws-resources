@@ -1,0 +1,319 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: LabSys CloudFormation template for Fargate.
+Parameters:
+  pVPC:
+    Type: AWS::EC2::VPC::Id
+  pPrivateSubnet1:
+    Type: AWS::EC2::Subnet::Id
+  pPrivateSubnet2:
+    Type: AWS::EC2::Subnet::Id
+#  Certificate:
+#    Type: String
+    # Update with the certificate ARN from Certificate Manager, which must exist in the same region.
+#    Default: 'arn:aws:acm:region:123456789012:certificate/00000000-0000-0000-0000-000000000000'
+  pEcrImage:
+    Type: String
+    # Update with the Docker image. "You can use images in the Docker Hub registry or specify other repositories (repository-url/image:tag)."
+    Default: ENTER CONTAINER PATH (i.e, 00000001111000.dkr.ecr.us-east-1.amazonaws.com/containername:tag)
+  pServiceName:
+    Type: String
+    # update with the name of the service
+    Default: ServiceName
+  pContainerPort:
+    Type: Number
+    Default: 8181
+  pLBSecurityGroupId:
+    Type: String
+    Default: sg-07bc6de48b366c45b
+  pLoadBalancerARN:
+    Type: String
+    Default: ENTER ARN of LOAD BALANCER YOU WANT TO USE.
+  pLoadBalancerPort:
+    Type: Number
+    Default: 80
+  pHealthCheckPath:
+    Type: String
+    Default: /service/health
+#  HostedZoneName:
+#    Type: String
+#    Default: company.com
+#  pSubdomain:
+#    Type: String
+#    Default: myservice
+
+  # for autoscaling
+  pMinContainers:
+    Type: Number
+    Default: 2
+  # for autoscaling
+  pMaxContainers:
+    Type: Number
+    Default: 10
+  # target CPU utilization (%)
+  pAutoScalingTargetValue:
+    Type: Number
+    Default: 50
+
+Metadata:
+  AWS::CloudFormation::Interface:
+      ParameterGroups:
+
+        - Label:
+            default: "VPC Settings"
+          Parameters:
+            - pVPC
+            - pPrivateSubnet1
+            - pPrivateSubnet2
+
+
+        - Label:
+            default: "Container"
+          Parameters:
+            - pEcrImage
+            - pServiceName
+            - pContainerPort
+            - pLBSecurityGroupId
+            - pLoadBalancerARN
+            - pLoadBalancerPort
+            - pHealthCheckPath
+            - pMinContainers
+            - pMaxContainers
+            - pAutoScalingTargetValue
+
+
+      ParameterLabels:
+        pVPC:
+          default: "VPC ID"
+        pPrivateSubnet1:
+          default: "Private Subnet 1"
+        pPrivateSubnet2:
+          default: "Private Subnet 2"
+
+        pEcrImage:
+          default: "ECR"
+
+        pServiceName:
+          default: "Service Name"
+        pContainerPort:
+          default: "Container Port"
+        pLBSecurityGroupId:
+          default: "Load Balancer SecurityGroupID"
+        pLoadBalancerARN:
+          default: "Load Balancer ARN"
+        pLoadBalancerPort:
+          default: "Load Balancer Port"
+        pHealthCheckPath:
+          default: "Healthcheck Path"
+        pMinContainers:
+          default: "Container Min"
+        pMaxContainers:
+          default: "Container Max"
+        pAutoScalingTargetValue:
+          default: "Autoscale Target"
+
+
+
+
+Resources:
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Join ['', [!Ref pServiceName, Cluster]]
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    # Makes sure the log group is created before it is used.
+    DependsOn: LogGroup
+    Properties:
+      # Name of the task definition. Subsequent versions of the task definition are grouped together under this name.
+      Family: !Join ['', [!Ref pServiceName, TaskDefinition]]
+      # awsvpc is required for Fargate
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      # 256 (.25 vCPU) - Available memory values: 0.5GB, 1GB, 2GB
+      # 512 (.5 vCPU) - Available memory values: 1GB, 2GB, 3GB, 4GB
+      # 1024 (1 vCPU) - Available memory values: 2GB, 3GB, 4GB, 5GB, 6GB, 7GB, 8GB
+      # 2048 (2 vCPU) - Available memory values: Between 4GB and 16GB in 1GB increments
+      # 4096 (4 vCPU) - Available memory values: Between 8GB and 30GB in 1GB increments
+      Cpu: 256
+      # 0.5GB, 1GB, 2GB - Available cpu values: 256 (.25 vCPU)
+      # 1GB, 2GB, 3GB, 4GB - Available cpu values: 512 (.5 vCPU)
+      # 2GB, 3GB, 4GB, 5GB, 6GB, 7GB, 8GB - Available cpu values: 1024 (1 vCPU)
+      # Between 4GB and 16GB in 1GB increments - Available cpu values: 2048 (2 vCPU)
+      # Between 8GB and 30GB in 1GB increments - Available cpu values: 4096 (4 vCPU)
+      Memory: 0.5GB
+      # A role needed by ECS.
+      # "The ARN of the task execution role that containers in this task can assume. All containers in this task are granted the permissions that are specified in this role."
+      # "There is an optional task execution IAM role that you can specify with Fargate to allow your Fargate tasks to make API calls to Amazon ECR."
+      ExecutionRoleArn: !Ref ExecutionRole
+      # "The Amazon Resource Name (ARN) of an AWS Identity and Access Management (IAM) role that grants containers in the task permission to call AWS APIs on your behalf."
+      TaskRoleArn: !Ref TaskRole
+      ContainerDefinitions:
+        - Name: !Ref pServiceName
+          Image: !Ref pEcrImage
+          PortMappings:
+            - ContainerPort: !Ref pContainerPort
+          # Send logs to CloudWatch Logs
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref LogGroup
+              awslogs-stream-prefix: ecs
+  # A role needed by ECS
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['', [!Ref pServiceName, ExecutionRole]]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+  # A role for the containers
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['', [!Ref pServiceName, TaskRole]]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      # ManagedPolicyArns:
+      #   -
+      # Policies:
+      #   -
+  # A role needed for auto scaling
+  AutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['', [!Ref pServiceName, AutoScalingRole]]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceAutoscaleRole'
+  ContainerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Join ['', [!Ref pServiceName, ContainerSecurityGroup]]
+      VpcId: !Ref pVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref pContainerPort
+          ToPort: !Ref pContainerPort
+          SourceSecurityGroupId: !Ref pLBSecurityGroupId
+  InboundRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      CidrIp: 0.0.0.0/0
+      IpProtocol: tcp
+      FromPort: !Ref pLoadBalancerPort
+      ToPort: !Ref pLoadBalancerPort
+      GroupId: !Ref pLBSecurityGroupId
+  Service:
+    Type: AWS::ECS::Service
+    # This dependency is needed so that the load balancer is setup correctly in time
+    DependsOn:
+      - ListenerHTTPS
+    Properties:
+      ServiceName: !Ref pServiceName
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref TaskDefinition
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+      DesiredCount: 2
+      # This may need to be adjusted if the container takes a while to start up
+      HealthCheckGracePeriodSeconds: 3000
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          # change to ENABLED if you're using public subnets
+          AssignPublicIp: DISABLED
+          Subnets:
+            - !Ref pPrivateSubnet1
+            - !Ref pPrivateSubnet2
+          SecurityGroups:
+            - !Ref ContainerSecurityGroup
+      LoadBalancers:
+        - ContainerName: !Ref pServiceName
+          ContainerPort: !Ref pContainerPort
+          TargetGroupArn: !Ref TargetGroup
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      # will look for a 200 status code by default unless specified otherwise
+      HealthCheckPath: !Ref pHealthCheckPath
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 2
+      HealthyThresholdCount: 2
+      Name: !Join ['', [!Ref pServiceName, TargetGroup]]
+      Port: !Ref pContainerPort
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 60 # default is 300
+      TargetType: ip
+      VpcId: !Ref pVPC
+  ListenerHTTPS:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref pLoadBalancerARN
+      Port: !Ref pLoadBalancerPort
+      Protocol: HTTP
+    #  Certificates:
+    #    - CertificateArn: !Ref Certificate
+#  DNSRecord:
+#    Type: AWS::Route53::RecordSet
+#    Properties:
+#      HostedZoneName: !Join ['', [!Ref HostedZoneName, .]]
+#      Name: !Join ['', [!Ref pSubdomain, ., !Ref HostedZoneName, .]]
+#      Type: A
+#      AliasTarget:
+#        DNSName: !GetAtt LoadBalancer.DNSName
+#        HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['', [/ecs/, !Ref pServiceName, TaskDefinition]]
+  AutoScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MinCapacity: !Ref pMinContainers
+      MaxCapacity: !Ref pMaxContainers
+      ResourceId: !Join ['/', [service, !Ref Cluster, !GetAtt Service.Name]]
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+      # "The Amazon Resource Name (ARN) of an AWS Identity and Access Management (IAM) role that allows Application Auto Scaling to modify your scalable target."
+      RoleARN: !GetAtt AutoScalingRole.Arn
+  AutoScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Join ['', [!Ref pServiceName, AutoScalingPolicy]]
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        ScaleInCooldown: 10
+        ScaleOutCooldown: 10
+        # Keep things at or lower than 50% CPU utilization, for example
+        TargetValue: !Ref pAutoScalingTargetValue
+
+#Outputs:
+#  Endpoint:
+#    Description: Endpoint
+#    Value: !Join ['', ['https://', !Ref DNSRecord]]
