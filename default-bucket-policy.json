@@ -1,0 +1,56 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "Permission to list the objects in a bucket",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": [
+                    "arn:aws:iam::{ACCTID01}:root",
+                    "arn:aws:iam::{ACCTID02}:root"
+                ]
+            },
+            "Action": [
+                "s3:ListBucket",
+                "s3:ListBucketVersions",
+                "s3:ListBucketMultipartUploads"
+            ],
+            "Resource": "arn:aws:s3:::{BUCKETNAME}"
+        },
+        {
+            "Sid": "Read permission for every object in a bucket",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": [
+                    "arn:aws:iam::{ACCTID01}:root",
+                    "arn:aws:iam::{ACCTID02}:root"
+                ]
+            },
+            "Action": [
+                "s3:GetObject",
+                "s3:GetObjectVersion"
+            ],
+            "Resource": "arn:aws:s3:::{BUCKETNAME}/*"
+        },
+        {
+            "Sid": "Permission to read and write objects into bucket",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": [
+                    "arn:aws:iam::{ACCTID01}:role/{ROLENAME01}",
+                    "arn:aws:iam::{ACCTID02}:role/{ROLENAME02}"
+                ]
+            },
+            "Action": [
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:PutObjectAcl",
+                "s3:GetObjectAttributes"
+            ],
+            "Resource": [
+                "arn:aws:s3:::{BUCKETNAME}/*",
+                "arn:aws:s3:::{BUCKETNAME}"
+            ]
+        }
+    ]
+}
