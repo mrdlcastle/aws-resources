@@ -1,0 +1,7 @@
+# Shell access
+aws ssm start-session --target i-0abc123...
+
+# RDP via port forwarding (then open your RDP client to localhost:3389)
+aws ssm start-session --target i-0abc123... \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters "portNumber=3389,localPortNumber=3389"
